@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  screenshot:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run build
+      - run: npm i --no-save playwright && npx playwright install --with-deps chromium
+      - name: Capture demo screenshot
+        run: |
+          (npx vite preview --port 4173 >/dev/null 2>&1 &)
+          sleep 3
+          mkdir -p docs
+          npx playwright screenshot --viewport-size=1280,800 --wait-for-timeout=6000 \
+            "http://localhost:4173/${GITHUB_REPOSITORY#*/}/" docs/demo.png
+      - name: Commit screenshot
+        run: |
+          git config user.name "Kumar Bipul"
+          git config user.email "kbipul@users.noreply.github.com"
+          git add docs/demo.png
+          git diff --cached --quiet || { git commit -m "docs: demo screenshot [skip ci]"; git push; }
